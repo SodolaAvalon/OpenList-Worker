@@ -64,7 +64,7 @@
     //   do         - Cloudflare Durable Objects（需下方 durable_objects）
     //   mysql      - 外部 MySQL（需 MYSQL_URLS 或 MYSQL_HOST 等，仅 Node 运行时）
     // 说明：mysql 仅在配置了连接信息时才参与 auto 探测，避免无谓的 TCP 建连。
-    "DB_DRIVER": "auto",
+    "DB_DRIVER": "kv",
 
     // 敏感字段落盘算法（默认 none：不加密；与 DB_DRIVER/DB_FORMAT 正交）：
     //   none（默认）              - 不加密，敏感字段明文落盘
@@ -80,7 +80,7 @@
     //       因此把该项改回 none 不会导致既有数据不可读（下次保存自动转为明文）。
     // 注意：该项与 JWT 密钥无关 —— DB_CIPHER=none 时，未配置 JWT_SECRET 仍会
     //       自动生成并持久化共享密钥（JWT 签名需要）。
-    "DB_CIPHER": "none",
+    "DB_CIPHER": "aes-256-gcm",
 
     // ── singleflight（并发相同调用去重）──────────────────────────────────
     //
