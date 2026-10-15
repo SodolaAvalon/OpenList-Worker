@@ -21,6 +21,10 @@ import {
 } from "../internal/driver/proxy"
 import { getProxyRange } from "../internal/driver/storageopts"
 import {
+  getStrict139RedirectUrl,
+  isStrict139DirectOnly,
+} from "../internal/driver/direct_only_139"
+import {
   buildUpstreamHeaders,
   shouldRetryWithoutRange,
   contentTypeForPath,
@@ -448,6 +452,58 @@ rawRouter.get("/*", async (c) => {
 
     if (resolved.isVirtual || !resolved.physical) {
       return c.text("Cannot download virtual directory path", 400)
+    }
+
+    // /139 is fail-closed: one externally hosted HTTPS 302, or an error.
+    // Never enter proxyUpstream(), createReadStream(), or a proxy URL fallback,
+    // even for /p, /sd, ?proxy=true, proxy_types, or future policy changes.
+    // Signature/share validation above this point remains mandatory.
+    if (isStrict139DirectOnly(resolved.storage)) {
+      const storage = resolved.storage
+      try {
+        const driver = await getDriver(storage.driver, storage)
+        let fileItem: any
+        try {
+          fileItem = await driver.get(reqPath, resolved.physical)
+        } finally {
+          await flushPendingDriverState(
+            storage.driver,
+            storage,
+            driver,
+            getStorageRequestContext(c),
+          )
+        }
+        if (!fileItem || fileItem.is_dir) {
+          return c.text("139 download unavailable: not a file", 404)
+        }
+        const url = getStrict139RedirectUrl(fileItem.raw_url, c.req.url)
+        if (!url) {
+          return c.text(
+            "139 direct link unavailable; server-side proxy is disabled",
+            502,
+          )
+        }
+        try {
+          assertSafeUrl(
+            url,
+            "139 redirect-only download",
+            getTrustedHosts(storage.addition, c.env),
+          )
+        } catch (e: any) {
+          return c.text(
+            "139 direct link rejected; server-side proxy is disabled",
+            502,
+          )
+        }
+        c.header("Cache-Control", "private, no-store")
+        return c.redirect(url, 302)
+      } catch (e: any) {
+        console.error("[139 direct-only] failed to resolve link:", e?.message)
+        return c.text(
+          "139 direct link unavailable; server-side proxy is disabled",
+          502,
+        )
+      }
     }
 
     if (resolved.storage) {
