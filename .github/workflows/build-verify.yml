@@ -68,6 +68,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Test strict 139 redirect-only behavior
+        run: pnpm exec tsx --test src/backend/internal/driver/direct_only_139.test.ts
+
       - name: Fetch official frontend dist
         run: node scripts/fetch-frontend.mjs
 

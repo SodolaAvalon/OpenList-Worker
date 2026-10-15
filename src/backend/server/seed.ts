@@ -4,6 +4,7 @@ import { canWrite, getActualPath, can, PermissionBit } from "../pkg/permission"
 import { assertSafeUrl } from "../pkg/http"
 import { safeErrorMessage } from "../pkg/errs"
 import { getSettings, resolvePath } from "../internal/model/db"
+import { isStrict139DirectOnly } from "../internal/driver/direct_only_139"
 import {
   flushPendingDriverState,
   getDriver,
@@ -282,6 +283,10 @@ async function readStoredSeed(
   path: string,
 ): Promise<Uint8Array> {
   const actualPath = getActualPath(user, normalizeVirtualPath(path))
+  // No server-side read/hash of 139 content, even for seed conversion.
+  if (isStrict139DirectOnly((await resolvePath(actualPath)).storage)) {
+    throw new Error("139 redirect-only mode: server-side seed reading disabled")
+  }
   const { item, rawUrl: apiRawUrl } = await getItem(
     actualPath,
     storageContext(c),
@@ -376,6 +381,9 @@ async function collectSourceFiles(
     if (result.length >= maxFiles)
       throw new Error(`Seed file count exceeds the ${maxFiles} file limit`)
     const actualPath = getActualPath(user, virtualPath)
+    if (isStrict139DirectOnly((await resolvePath(actualPath)).storage)) {
+      throw new Error("139 redirect-only mode: server-side seed hashing disabled")
+    }
     const { item, rawUrl: apiRawUrl } = await getItem(
       actualPath,
       storageContext(c),
