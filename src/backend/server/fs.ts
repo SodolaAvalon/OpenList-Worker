@@ -38,6 +38,10 @@ import {
   getDisableIndex,
   resolveCacheExpiration,
 } from "../internal/driver/storageopts"
+import {
+  getStrict139RedirectUrl,
+  isStrict139DirectOnly,
+} from "../internal/driver/direct_only_139"
 import { parseZip, extractZipEntry, ZipArchive } from "../internal/archive/zip"
 import { assertSafeUrl, getTrustedHosts } from "../pkg/http"
 import { seedRouter } from "./seed"
@@ -1297,10 +1301,20 @@ fsRouter.post("/link", async (c) => {
     try {
       const item = await driver.get(reqPath, resolved.physical ?? "/")
       if (item && item.raw_url) {
+        const url = isStrict139DirectOnly(resolved.storage)
+          ? getStrict139RedirectUrl(item.raw_url, c.req.url)
+          : item.raw_url
+        if (!url) {
+          return c.json({
+            code: 502,
+            message: "139 direct link unavailable; server-side proxy is disabled",
+            data: null,
+          }, 502)
+        }
         return c.json({
           code: 200,
           message: "success",
-          data: { url: item.raw_url },
+          data: { url },
         })
       }
     } finally {
@@ -1310,6 +1324,14 @@ fsRouter.post("/link", async (c) => {
         driver,
         requestContext,
       )
+    }
+    // Never offer a proxy fallback link for the strict /139 mount.
+    if (isStrict139DirectOnly(resolved.storage)) {
+      return c.json({
+        code: 502,
+        message: "139 direct link unavailable; server-side proxy is disabled",
+        data: null,
+      }, 502)
     }
     // 无直链（如本地/加密驱动）：返回代理下载地址。
     //
@@ -1638,6 +1660,11 @@ async function fetchArchiveBytes(
   const actual = getActualPath(user, virtualPath)
   const resolved = await resolvePath(actual)
   if (resolved.isVirtual) throw new Error("failed get storage: storage not found")
+  // Archive inspection/decompression downloads the entire ZIP into the Worker.
+  // For /139, refuse it instead of silently consuming file bytes.
+  if (isStrict139DirectOnly(resolved.storage)) {
+    throw new Error("139 redirect-only mode: server-side archive reading disabled")
+  }
   const driver = await getDriver(resolved.storage!.driver, resolved.storage)
   let item: any
   try {
